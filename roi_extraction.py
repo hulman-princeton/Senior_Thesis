@@ -7,6 +7,9 @@ Original file is located at
     https://colab.research.google.com/drive/1Oz14uQh75LU4o6XuYZBKRIa72ZLxc1lm
 """
 
+## ML algorithm to extract optic disc from retinal images
+# Code implementation of algorithm from: Zhang, Z., Lee, B. H., Liu, J., Wong, D. W. K., Tan, N. M., Lim, J. H., ... & Wong, T. Y. (2010, June). Optic disc region of interest localization in fundus image for glaucoma detection in argali. In 2010 5th IEEE Conference on Industrial Electronics and Applications (pp. 1686-1689). IEEE.
+
 import numpy as np
 import os
 import pandas as pd
@@ -27,73 +30,8 @@ r_2_0 = '/content/drive/MyDrive/ORF 498/REFUGE_split/val/0'
 r_2_1 = '/content/drive/MyDrive/ORF 498/REFUGE_split/val/1'
 
 # Functions used for ROI extraction
-def circle_mask(img_arr, dim):
-    assert img_arr.shape[0] == dim, "Rows incorrect"
-    assert img_arr.shape[1] == dim, "Columns incorrect"
 
-    # calculate center and radius coords
-    center = int(dim/2)
-    circ_radius = 5*center/6
-
-    # create circle and mask
-    mask = np.zeros((dim,dim), dtype=np.uint8)
-    rr,cc = disk(center=(center, center), radius=circ_radius, shape=None)
-    mask[rr,cc] = 1
-    masked_arr = np.multiply(img_arr, mask)
-
-    return masked_arr
-
-def get_cropped_df(array, indices):
-    # create df with intensity and (x,y) dim for each pixel
-    df = pd.DataFrame({'V': array.flatten(), 'x': indices[:, 0], 'y': indices[:, 1]})
-
-    # get top 0.5% pixel intensities in new df
-    sorted = df.sort_values(by='V', ascending=False)
-    num_top_pix = math.floor(len(df) * top_pix_percent)
-    crop_df = sorted.head(num_top_pix)
-    return crop_df
-
-def get_pix_grid(grid_dim, gray_array, crop_df):
-    # create empty grid array
-    grid_arr = np.zeros((grid_dim, grid_dim))
-
-    # get corresponding indices for grid based on image size
-    dim = gray_array.shape[0]
-    grid_length = math.floor(dim/grid_dim)
-
-    # place each pixel into correct grid box (increase array value at correct index)
-    for ind in crop_df.index:
-      x = crop_df['x'][ind]
-      row = math.floor(x/grid_length)
-      if row == grid_dim: row = grid_dim - 1
-
-      y = crop_df['y'][ind]
-      col = math.floor(y/grid_length)
-      if col == grid_dim: col = grid_dim - 1
-
-      grid_arr[row,col] += 1
-
-    return grid_arr, grid_length
-
-def get_roi_coords(single_ind, grid_length):
-    # convert argmax dim from 1-D to 2-D
-    row_ind = math.floor(single_ind / 8)
-    col_ind = single_ind - row_ind*8
-
-    # calculate coords of interest
-    upper_left_row = grid_length*row_ind
-    upper_left_col = grid_length*col_ind
-    bottom_right_row = upper_left_row + grid_length - 1
-    bottom_right_col = upper_left_col + grid_length - 1
-
-    # expand by adding one tile on each side
-    upper_left_row = upper_left_row - grid_length + 1
-    upper_left_col = upper_left_col - grid_length + 1
-    bottom_right_row = bottom_right_row + grid_length - 1
-    bottom_right_col = bottom_right_col + grid_length - 1
-
-    return upper_left_col, upper_left_row, bottom_right_col, bottom_right_row
-
+# return square grayscale image array
 def pad_array(array):
   # new array shape matches longer side of old array
   rows = array.shape[0]
@@ -130,6 +68,77 @@ def pad_array(array):
 
   return padded_array, dim
 
+# returns grayscale image array with outer edge of retina masked out
+def circle_mask(img_arr, dim):
+    assert img_arr.shape[0] == dim, "Rows incorrect"
+    assert img_arr.shape[1] == dim, "Columns incorrect"
+
+    # calculate center and radius coords
+    center = int(dim/2)
+    circ_radius = 5*center/6
+
+    # create circle and mask
+    mask = np.zeros((dim,dim), dtype=np.uint8)
+    rr,cc = disk(center=(center, center), radius=circ_radius, shape=None)
+    mask[rr,cc] = 1
+    masked_arr = np.multiply(img_arr, mask)
+
+    return masked_arr
+
+# returns list of top 0.5% of image's brightest pixels
+def get_cropped_df(array, indices):
+    # create df with intensity and (x,y) dim for each pixel
+    df = pd.DataFrame({'V': array.flatten(), 'x': indices[:, 0], 'y': indices[:, 1]})
+
+    # get top 0.5% pixel intensities in new df
+    sorted = df.sort_values(by='V', ascending=False)
+    num_top_pix = math.floor(len(df) * top_pix_percent)
+    crop_df = sorted.head(num_top_pix)
+    return crop_df
+
+# returns grid of tiles with number of brightest pixels per tile
+def get_pix_grid(grid_dim, gray_array, crop_df):
+    # create empty grid array
+    grid_arr = np.zeros((grid_dim, grid_dim))
+
+    # get corresponding indices for grid based on image size
+    dim = gray_array.shape[0]
+    grid_length = math.floor(dim/grid_dim)
+
+    # place each pixel into correct grid box (increase array value at correct index)
+    for ind in crop_df.index:
+      x = crop_df['x'][ind]
+      row = math.floor(x/grid_length)
+      if row == grid_dim: row = grid_dim - 1
+
+      y = crop_df['y'][ind]
+      col = math.floor(y/grid_length)
+      if col == grid_dim: col = grid_dim - 1
+
+      grid_arr[row,col] += 1
+
+    return grid_arr, grid_length
+
+# returns coordinates to crop image to ROI
+def get_roi_coords(single_ind, grid_length):
+    # convert argmax dim from 1-D to 2-D
+    row_ind = math.floor(single_ind / 8)
+    col_ind = single_ind - row_ind*8
+
+    # calculate coords of interest
+    upper_left_row = grid_length*row_ind
+    upper_left_col = grid_length*col_ind
+    bottom_right_row = upper_left_row + grid_length - 1
+    bottom_right_col = upper_left_col + grid_length - 1
+
+    # expand by adding one tile on each side
+    upper_left_row = upper_left_row - grid_length + 1
+    upper_left_col = upper_left_col - grid_length + 1
+    bottom_right_row = bottom_right_row + grid_length - 1
+    bottom_right_col = bottom_right_col + grid_length - 1
+
+    return upper_left_col, upper_left_row, bottom_right_col, bottom_right_row
+
 # Preprocessing: find most common dimensions for given dataset
 dims_list = []
 dirs = [r_0_0, r_0_1, r_1_0, r_1_1, r_2_0, r_2_1]
@@ -146,7 +155,7 @@ print(volume)
 top_pix_percent = 0.5/100
 grid_dim = int(math.sqrt(64))
 
-# store most common indices in variable- saves time
+# store most common indices- saves time in for loop
 indices_1634 = np.array(list(np.ndindex(1634,1634)))
 indices_2124 = np.array(list(np.ndindex(2124,2124)))
 indices_2125 = np.array(list(np.ndindex(2125,2125)))
