@@ -8,16 +8,16 @@ Original file is located at
 """
 
 ## ML algorithm to extract optic disc from retinal images
-# Code implementation of algorithm from: Zhang, Z., Lee, B. H., Liu, J., Wong, D. W. K., Tan, N. M., Lim, J. H., ... & Wong, T. Y. (2010, June). Optic disc region of interest localization in fundus image for glaucoma detection in argali. In 2010 5th IEEE Conference on Industrial Electronics and Applications (pp. 1686-1689). IEEE.
+# Adapted from: Zhang, Z., Lee, B. H., Liu, J., Wong, D. W. K., Tan, N. M., Lim, J. H., ... & Wong, T. Y. (2010, June). Optic disc region of interest localization in fundus image for glaucoma detection in argali. In 2010 5th IEEE Conference on Industrial Electronics and Applications (pp. 1686-1689). IEEE.
 
 import numpy as np
 import os
 import pandas as pd
 import math
+import cv2
 from PIL import Image, ImageOps
 from matplotlib import pyplot as plt
 from skimage.draw import disk
-from skimage.feature import blob_dog
 
 # Directories to image folders
 r_0_0 = '/content/drive/MyDrive/ORF 498/REFUGE_split/train/0'
@@ -29,7 +29,7 @@ r_1_1 = '/content/drive/MyDrive/ORF 498/REFUGE_split/test/1'
 r_2_0 = '/content/drive/MyDrive/ORF 498/REFUGE_split/val/0'
 r_2_1 = '/content/drive/MyDrive/ORF 498/REFUGE_split/val/1'
 
-# Functions used for ROI extraction
+# Functions used in ROI algorithm
 
 # return square grayscale image array
 def pad_array(array):
@@ -50,7 +50,7 @@ def pad_array(array):
   extra = max(rows, cols) - min(rows, cols)
   pad = extra/2
 
-  # correct for 1 even, 1 odd edge
+  # correct for case of 1 even, 1 odd edge
   if extra % 2 != 0:
     pad = math.ceil(pad)
     dim += 1
@@ -77,10 +77,12 @@ def circle_mask(img_arr, dim):
     center = int(dim/2)
     circ_radius = 5*center/6
 
-    # create circle and mask
+    # create circle mask array
     mask = np.zeros((dim,dim), dtype=np.uint8)
     rr,cc = disk(center=(center, center), radius=circ_radius, shape=None)
     mask[rr,cc] = 1
+
+    # mask original array
     masked_arr = np.multiply(img_arr, mask)
 
     return masked_arr
@@ -98,14 +100,16 @@ def get_cropped_df(array, indices):
 
 # returns grid of tiles with number of brightest pixels per tile
 def get_pix_grid(grid_dim, gray_array, crop_df):
+
     # create empty grid array
     grid_arr = np.zeros((grid_dim, grid_dim))
 
-    # get corresponding indices for grid based on image size
+    # get grid dimensions from image size
     dim = gray_array.shape[0]
     grid_length = math.floor(dim/grid_dim)
 
-    # place each pixel into correct grid box (increase array value at correct index)
+    # place each pixel into correct grid box
+    # i.e. increase array value at correct index
     for ind in crop_df.index:
       x = crop_df['x'][ind]
       row = math.floor(x/grid_length)
@@ -119,8 +123,8 @@ def get_pix_grid(grid_dim, gray_array, crop_df):
 
     return grid_arr, grid_length
 
-# returns coordinates to crop image to ROI
-def get_roi_coords(single_ind, grid_length):
+# returns coordinates for cropping image to ROI
+def get_roi_coords(single_ind, grid_length, first_pass):
     # convert argmax dim from 1-D to 2-D
     row_ind = math.floor(single_ind / 8)
     col_ind = single_ind - row_ind*8
@@ -131,119 +135,72 @@ def get_roi_coords(single_ind, grid_length):
     bottom_right_row = upper_left_row + grid_length - 1
     bottom_right_col = upper_left_col + grid_length - 1
 
-    # expand by adding one tile on each side
-    upper_left_row = upper_left_row - grid_length + 1
-    upper_left_col = upper_left_col - grid_length + 1
-    bottom_right_row = bottom_right_row + grid_length - 1
-    bottom_right_col = bottom_right_col + grid_length - 1
+    # expand by adding one (two) tiles on each side
+    # one for first pass, two for second
+    if first_pass == True: pad = 1
+    if first_pass == False: pad = 2
+    upper_left_row = upper_left_row - pad*grid_length + 1
+    upper_left_col = upper_left_col - pad*grid_length + 1
+    bottom_right_row = bottom_right_row + pad*grid_length - 1
+    bottom_right_col = bottom_right_col + pad*grid_length - 1
 
     return upper_left_col, upper_left_row, bottom_right_col, bottom_right_row
 
-# Preprocessing: find most common dimensions for given dataset
-dims_list = []
-dirs = [r_0_0, r_0_1, r_1_0, r_1_1, r_2_0, r_2_1]
-for dir in dirs:
-  for filename in os.listdir(dir):
-    img = cv2.imread(dir + '/' + filename)
-    dim = max(img.shape[0], img.shape[1])
-    dims_list += [dim]
-vals, volume = np.unique(dims_list, return_counts=True)
-print(vals)
-print(volume)
+def alg_iter(img, first_pass):
+    # original image
+    img_array = np.asarray(img)
+    del img
+
+    # get square image
+    padded_array, dim = pad_array(img_array)
+    padded_img = Image.fromarray(padded_array.astype('uint8'), 'RGB')
+
+    # convert to grayscale
+    gray_img = ImageOps.grayscale(padded_img)
+    gray_array = np.asarray(gray_img)
+    del gray_img, padded_array
+
+    # mask out border on first pass only
+    if first_pass == True: masked_array = circle_mask(gray_array, dim)
+    else: masked_array = gray_array
+    del gray_array
+
+    # get df of brightest pixels
+    indices = np.array(list(np.ndindex(dim,dim)))
+    crop_df = get_cropped_df(masked_array, indices)
+
+    # get grid coordinates
+    grid_arr, grid_length = get_pix_grid(grid_dim, masked_array, crop_df)
+
+    # locate brightest tile and get coordinates
+    single_ind = np.argmax(grid_arr)
+    x1, y1, x2, y2 = get_roi_coords(single_ind, grid_length, first_pass)
+
+    # crop original image to brightest tile (ROI)
+    roi_img = padded_img.crop((x1, y1, x2, y2))
+    assert roi_img.size[0] == roi_img.size[1]
+
+    # return ROI image
+    return roi_img
 
 # Algorithm parameters
 top_pix_percent = 0.5/100
 grid_dim = int(math.sqrt(64))
 
-# store most common indices- saves time in for loop
-indices_1634 = np.array(list(np.ndindex(1634,1634)))
-indices_2124 = np.array(list(np.ndindex(2124,2124)))
-indices_2125 = np.array(list(np.ndindex(2125,2125)))
-
-# ALGORITHM FOR FULL FOLDER
+# Run algorithm for single folder
 dir = r_0_0
+target_dir = '/content/MyDrive/ORF498/'
 
 for filename in os.listdir(dir):
   # original image
   img = Image.open(dir + '/' + filename)
-  img_array = np.asarray(img)
-  del img
 
-  # create image to be cropped
-  padded_array, dim = pad_array(img_array)
-  padded_img = Image.fromarray(padded_array.astype('uint8'), 'RGB')
+  # output of first iteration
+  roi_img = alg_iter(img, first_pass=True)
 
-  # convert to gray array
-  gray_img = ImageOps.grayscale(padded_img)
-  gray_array = np.asarray(gray_img)
-  del gray_img, padded_array
+  # output of second iteration
+  final_roi_img = alg_iter(roi_img, first_pass=False)
 
-  # get circle masked array
-  masked_array = circle_mask(gray_array, dim)
-  del gray_array
-
-  # EDIT FOR COMMON NUMS
-  if dim == int(1634): indices = indices_1634
-  elif dim == int(2124): indices = indices_2124
-  elif dim == int(2125): indices = indices_2125
-  else: indices = np.array(list(np.ndindex(dim,dim)))
-
-  crop_df = get_cropped_df(masked_array, indices)
-  grid_arr, grid_length = get_pix_grid(grid_dim, masked_array, crop_df)
-
-  # get cropped size
-  single_ind = np.argmax(grid_arr)
-  x1, y1, x2, y2 = get_roi_coords(single_ind, grid_length)
-
-  # crop color padded image
-  roi_img = padded_img.crop((x1, y1, x2, y2))
-  assert roi_img.size[0] == roi_img.size[1]
-
-  #roi_img.save('/content/drive/MyDrive/ORF 498/REFUGE_split/train/0/' + filename)
-
-# ALGORITHM FOR SINGLE FILE WITH VISUALIZATION
-
-# parameters
-top_pix_percent = 0.5/100
-grid_dim = int(math.sqrt(64))
-filename = '/content/drive/MyDrive/ORF 498/G1020_split/train/1/image_65.jpg'
-
-# original image
-img = Image.open(filename)
-img_array = np.asarray(img)
-del img
-
-# create image to be cropped
-padded_array, dim = pad_array(img_array)
-padded_img = Image.fromarray(padded_array.astype('uint8'), 'RGB')
-
-# convert to gray array
-gray_img = ImageOps.grayscale(padded_img)
-gray_array = np.asarray(gray_img)
-del gray_img, padded_array
-
-# get circle masked array
-masked_array = circle_mask(gray_array, dim)
-
-# show original and masked grayscale imgs
-plt.rcParams["figure.figsize"] = [12,6]
-fig, plots = plt.subplots(ncols=2, nrows=1)
-plots[0].imshow(gray_array, cmap='gray', vmin=0, vmax=255)
-plots[1].imshow(masked_array, cmap='gray', vmin=0, vmax=255)
-plt.show()
-
-# ROI extraction
-indices = np.array(list(np.ndindex(dim,dim)))
-
-crop_df = get_cropped_df(masked_array, indices)
-grid_arr, grid_length = get_pix_grid(grid_dim, masked_array, crop_df)
-
-single_ind = np.argmax(grid_arr)
-x1, y1, x2, y2 = get_roi_coords(single_ind, grid_length)
-
-roi_img = padded_img.crop((x1, y1, x2, y2))
-assert roi_img.size[0] == roi_img.size[1]
-#print(roi_img.size)
-
-# show ROI img
-plt.imshow(roi_img)
+  # save final image
+  target_path = target_dir + filename
+  final_roi_img.save(target_path)
