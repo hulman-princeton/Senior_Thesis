@@ -7,8 +7,9 @@ Original file is located at
     https://colab.research.google.com/drive/1Oz14uQh75LU4o6XuYZBKRIa72ZLxc1lm
 """
 
-## ML algorithm to extract optic disc from retinal images
-# Adapted from: Zhang, Z., Lee, B. H., Liu, J., Wong, D. W. K., Tan, N. M., Lim, J. H., ... & Wong, T. Y. (2010, June). Optic disc region of interest localization in fundus image for glaucoma detection in argali. In 2010 5th IEEE Conference on Industrial Electronics and Applications (pp. 1686-1689). IEEE.
+### ML algorithm to extract optic disc from retinal images
+### Found at: https://github.com/hulman-princeton/Senior_Thesis/main/roi_extraction.py
+### Adapted from: Zhang, Z., Lee, B. H., Liu, J., Wong, D. W. K., Tan, N. M., Lim, J. H., ... & Wong, T. Y. (2010, June). Optic disc region of interest localization in fundus image for glaucoma detection in argali. In 2010 5th IEEE Conference on Industrial Electronics and Applications (pp. 1686-1689). IEEE.
 
 import numpy as np
 import os
