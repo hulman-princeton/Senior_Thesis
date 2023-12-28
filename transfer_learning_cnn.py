@@ -8,7 +8,7 @@ Original file is located at
 """
 
 ### Transfer learning framework for ResNet101 in PyTorch
-### Found at: https://github.com/hulman-princeton/Senior_Thesis/main/transfer_learning_cnn.py
+### Found at: https://github.com/hulman-princeton/Senior_Thesis/blob/main/transfer_learning_cnn.py
 ### Adapted from: https://pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
 
 # Libraries
